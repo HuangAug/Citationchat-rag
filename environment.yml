@@ -1,0 +1,8 @@
+name: citationchat
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - -r api/requirements.txt
