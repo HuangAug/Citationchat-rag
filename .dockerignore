@@ -1,0 +1,11 @@
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.git/
+.trae/
+node_modules/
+dist/
+api/.venv/
+api/venv/
+.env
