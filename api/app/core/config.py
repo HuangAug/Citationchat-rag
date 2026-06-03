@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "dev-secret-change-me"
     jwt_algorithm: str = "HS256"
     access_token_expires_minutes: int = 60 * 24
+    admin_email: str = "admin@local"
+    admin_password: str = "123456"
 
 
 settings = Settings()
