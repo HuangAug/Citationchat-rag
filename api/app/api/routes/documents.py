@@ -17,6 +17,7 @@ from app.core.config import settings
 from app.db.models.document import Document
 from app.db.models.kb import KnowledgeBase
 from app.rag.indexer import index_document
+from app.storage.upload import remove_if_exists, save_upload
 
 
 router = APIRouter(prefix="/kbs")
@@ -34,21 +35,6 @@ class DocumentOut(BaseModel):
 class UploadDocumentResponse(BaseModel):
     documentId: UUID
     status: str
-
-
-async def _save_upload(file: UploadFile, dest_path: str, *, max_bytes: int) -> int:
-    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-    written = 0
-    async with await anyio.open_file(dest_path, "wb") as f:
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            written += len(chunk)
-            if written > max_bytes:
-                raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large")
-            await f.write(chunk)
-    return written
 
 
 @router.get("/{kb_id}/documents", response_model=list[DocumentOut])
@@ -90,7 +76,7 @@ async def upload_document(
 
     try:
         max_bytes = settings.max_upload_size_mb * 1024 * 1024
-        await _save_upload(file, dest_path, max_bytes=max_bytes)
+        await save_upload(file, dest_path, max_bytes=max_bytes)
         doc.status = "uploaded"
         doc.error_message = None
         await db.commit()
@@ -98,23 +84,13 @@ async def upload_document(
         doc.status = "failed"
         doc.error_message = str(e.detail)
         await db.commit()
-
-        def cleanup():
-            if os.path.exists(dest_path):
-                os.remove(dest_path)
-
-        await anyio.to_thread.run_sync(cleanup)
+        await remove_if_exists(dest_path)
         raise
     except Exception:
         doc.status = "failed"
         doc.error_message = "Upload failed"
         await db.commit()
-
-        def cleanup():
-            if os.path.exists(dest_path):
-                os.remove(dest_path)
-
-        await anyio.to_thread.run_sync(cleanup)
+        await remove_if_exists(dest_path)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Upload failed")
 
     asyncio.create_task(index_document(doc.id))

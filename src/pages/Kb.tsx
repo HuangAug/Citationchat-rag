@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AlertTriangle, Pencil, Plus, Save, X } from "lucide-react";
 
@@ -7,6 +7,14 @@ import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
 type Kb = { id: string; name: string; description: string | null; createdAt: string; updatedAt: string };
+type CreateKbWithDocsResponse = {
+  id: string;
+  name: string;
+  description: string | null;
+  documentIds: string[];
+  createdAt: string;
+  updatedAt: string;
+};
 
 export default function KbPage() {
   const navigate = useNavigate();
@@ -22,6 +30,8 @@ export default function KbPage() {
 
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
+  const [createFiles, setCreateFiles] = useState<File[]>([]);
+  const fileRef = useRef<HTMLInputElement | null>(null);
   const canCreate = useMemo(() => !!name.trim() && !!accessToken && !loading, [accessToken, loading, name]);
   const canSaveEdit = useMemo(() => !!editingId && !!editName.trim() && !!accessToken && !loading, [accessToken, editName, editingId, loading]);
 
@@ -57,6 +67,30 @@ export default function KbPage() {
     setLoading(true);
     setError(null);
     try {
+      if (createFiles.length) {
+        const form = new FormData();
+        form.append("name", name.trim());
+        if (desc.trim()) form.append("description", desc.trim());
+        for (const f of createFiles) form.append("files", f);
+        const res = await fetch("/api/kbs/with-documents", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}` },
+          body: form,
+        });
+        if (!res.ok) {
+          const contentType = res.headers.get("content-type") ?? "";
+          const body = contentType.includes("application/json") ? await res.json() : await res.text();
+          throw new ApiError("创建失败", res.status, body);
+        }
+        const kb = (await res.json()) as CreateKbWithDocsResponse;
+        setName("");
+        setDesc("");
+        setCreateFiles([]);
+        if (fileRef.current) fileRef.current.value = "";
+        navigate(`/kb/${kb.id}`, { replace: true });
+        return;
+      }
+
       await apiFetch<Kb>("/kbs", {
         method: "POST",
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -64,6 +98,8 @@ export default function KbPage() {
       });
       setName("");
       setDesc("");
+      setCreateFiles([]);
+      if (fileRef.current) fileRef.current.value = "";
       await load(accessToken);
     } catch (e) {
       if (e instanceof ApiError) setError(e.message);
@@ -163,6 +199,23 @@ export default function KbPage() {
                     "dark:border-slate-800 dark:bg-slate-950 dark:focus:border-slate-600",
                   )}
                 />
+              </div>
+              <div>
+                <div className="mb-1 text-sm text-slate-600 dark:text-slate-300">文件（可选）</div>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  multiple
+                  onChange={(e) => setCreateFiles(Array.from(e.target.files ?? []))}
+                  className={cn(
+                    "block w-full rounded-md border bg-white px-3 py-2 text-sm",
+                    "border-slate-200",
+                    "dark:border-slate-800 dark:bg-slate-950",
+                  )}
+                />
+                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  支持：.pdf / .docx / .txt / .md；.doc 请先转换为 .docx 或 .pdf
+                </div>
               </div>
               <button
                 type="button"

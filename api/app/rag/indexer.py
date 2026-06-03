@@ -4,6 +4,8 @@ import os
 from uuid import UUID
 
 import anyio
+from docx import Document as DocxDocument
+from pypdf import PdfReader
 from sqlalchemy import delete, select
 
 from app.core.config import settings
@@ -31,14 +33,50 @@ def _split_text(text: str, *, chunk_size: int, chunk_overlap: int) -> list[str]:
     return out
 
 
-async def _read_document_text(storage_path: str) -> str:
-    _, ext = os.path.splitext(storage_path)
-    ext = ext.lower()
-    if ext not in {".txt", ".md", ".markdown", ".json", ".csv"}:
-        raise ValueError("Unsupported file type")
+async def _read_text_file(storage_path: str) -> str:
     async with await anyio.open_file(storage_path, "rb") as f:
         data = await f.read()
     return data.decode("utf-8", errors="ignore")
+
+
+async def _read_docx(storage_path: str) -> str:
+    def read():
+        doc = DocxDocument(storage_path)
+        parts = [p.text for p in doc.paragraphs if p.text and p.text.strip()]
+        return "\n".join(parts)
+
+    return await anyio.to_thread.run_sync(read)
+
+
+async def _read_pdf_pages(storage_path: str) -> list[tuple[int, str]]:
+    def read():
+        reader = PdfReader(storage_path)
+        pages: list[tuple[int, str]] = []
+        for i, page in enumerate(reader.pages, start=1):
+            try:
+                t = page.extract_text() or ""
+            except Exception:
+                t = ""
+            t = t.strip()
+            if t:
+                pages.append((i, t))
+        return pages
+
+    return await anyio.to_thread.run_sync(read)
+
+
+async def _read_document_pages(storage_path: str) -> list[tuple[int | None, str]]:
+    _, ext = os.path.splitext(storage_path)
+    ext = ext.lower()
+    if ext in {".txt", ".md", ".markdown", ".json", ".csv"}:
+        return [(None, await _read_text_file(storage_path))]
+    if ext == ".docx":
+        return [(None, await _read_docx(storage_path))]
+    if ext == ".pdf":
+        return [(page, text) for page, text in await _read_pdf_pages(storage_path)]
+    if ext == ".doc":
+        raise ValueError("Unsupported .doc file. Please convert to .docx or .pdf")
+    raise ValueError("Unsupported file type")
 
 
 async def index_document(document_id: UUID) -> None:
@@ -56,9 +94,8 @@ async def index_document(document_id: UUID) -> None:
             if not doc.storage_path or not os.path.exists(doc.storage_path):
                 raise ValueError("File not found")
 
-            text = await _read_document_text(doc.storage_path)
-            chunks = _split_text(text, chunk_size=settings.rag_chunk_size, chunk_overlap=settings.rag_chunk_overlap)
-            if not chunks:
+            pages = await _read_document_pages(doc.storage_path)
+            if not pages:
                 raise ValueError("Empty document")
 
             await db.execute(delete(Chunk).where(Chunk.document_id == doc.id))
@@ -66,23 +103,34 @@ async def index_document(document_id: UUID) -> None:
             client = OpenAICompatClient()
             batch_size = max(1, settings.rag_embedding_batch_size)
             chunk_id = 0
-            for i in range(0, len(chunks), batch_size):
-                batch = chunks[i : i + batch_size]
-                embeddings = await client.embed(batch)
-                for content, embedding in zip(batch, embeddings, strict=True):
-                    if len(embedding) != settings.embedding_dimensions:
-                        raise ValueError("Embedding dimensions mismatch")
-                    db.add(
-                        Chunk(
-                            document_id=doc.id,
-                            kb_id=doc.kb_id,
-                            page=None,
-                            content=content,
-                            metadata={"chunkIndex": chunk_id, "filename": doc.filename},
-                            embedding=embedding,
+            for page, page_text in pages:
+                page_chunks = _split_text(
+                    page_text,
+                    chunk_size=settings.rag_chunk_size,
+                    chunk_overlap=settings.rag_chunk_overlap,
+                )
+                if not page_chunks:
+                    continue
+                for i in range(0, len(page_chunks), batch_size):
+                    batch = page_chunks[i : i + batch_size]
+                    embeddings = await client.embed(batch)
+                    for content, embedding in zip(batch, embeddings, strict=True):
+                        if len(embedding) != settings.embedding_dimensions:
+                            raise ValueError("Embedding dimensions mismatch")
+                        db.add(
+                            Chunk(
+                                document_id=doc.id,
+                                kb_id=doc.kb_id,
+                                page=page,
+                                content=content,
+                                metadata={"chunkIndex": chunk_id, "filename": doc.filename},
+                                embedding=embedding,
+                            )
                         )
-                    )
-                    chunk_id += 1
+                        chunk_id += 1
+
+            if chunk_id == 0:
+                raise ValueError("Empty document")
 
             doc.status = "indexed"
             await db.commit()
@@ -94,4 +142,3 @@ async def index_document(document_id: UUID) -> None:
             doc.status = "failed"
             doc.error_message = "Indexing failed"
             await db.commit()
-
