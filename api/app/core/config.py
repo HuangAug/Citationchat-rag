@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     access_token_expires_minutes: int = 60 * 24
     admin_email: str = "admin@local"
     admin_password: str = "123456"
+    llm_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    llm_api_key: str = ""
+    llm_model: str = "qwen3.5-plus-2026-04-20"
 
 
 settings = Settings()
