@@ -123,7 +123,7 @@ export default function Home() {
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <a
-                href="http://localhost:8000/docs"
+                href="http://localhost:8001/docs"
                 target="_blank"
                 rel="noreferrer"
                 className={cn(

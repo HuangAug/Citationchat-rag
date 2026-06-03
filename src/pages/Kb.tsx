@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { AlertTriangle, Pencil, Plus, Save, X } from "lucide-react";
 
 import { ApiError, apiFetch } from "@/lib/api";
@@ -262,6 +262,14 @@ export default function KbPage() {
                           <>
                             <div className="truncate text-sm font-medium">{kb.name}</div>
                             <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">{kb.description ?? "—"}</div>
+                            <div className="mt-2">
+                              <Link
+                                to={`/kb/${kb.id}`}
+                                className="text-sm text-slate-700 hover:text-slate-900 dark:text-slate-200 dark:hover:text-white"
+                              >
+                                管理文档
+                              </Link>
+                            </div>
                           </>
                         )}
                       </div>
