@@ -6,7 +6,10 @@ export default function App() {
     <Router>
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/other" element={<div className="text-center text-xl">Other Page - Coming Soon</div>} />
+        <Route path="/login" element={<div className="mx-auto max-w-3xl p-6 text-center text-xl">Login - Coming Soon</div>} />
+        <Route path="/chat" element={<div className="mx-auto max-w-3xl p-6 text-center text-xl">Chat - Coming Soon</div>} />
+        <Route path="/kb" element={<div className="mx-auto max-w-3xl p-6 text-center text-xl">Knowledge Base - Coming Soon</div>} />
+        <Route path="/eval" element={<div className="mx-auto max-w-3xl p-6 text-center text-xl">Eval - Coming Soon</div>} />
       </Routes>
     </Router>
   );
