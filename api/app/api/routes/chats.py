@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
@@ -66,3 +66,14 @@ async def get_chat(chat_id: UUID, user=Depends(get_current_user), db: AsyncSessi
         "messages": [{"id": m.id, "role": m.role, "content": m.content, "createdAt": m.created_at} for m in msgs],
     }
 
+
+@router.delete("/{chat_id}")
+async def delete_chat(chat_id: UUID, user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Chat).where(Chat.id == chat_id, Chat.user_id == user.id))
+    chat = result.scalar_one_or_none()
+    if chat is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found")
+
+    await db.execute(delete(Chat).where(Chat.id == chat_id))
+    await db.commit()
+    return {"status": "ok"}

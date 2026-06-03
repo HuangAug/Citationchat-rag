@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -23,6 +24,10 @@ class OpenAICompatClient:
         self._api_key = settings.llm_api_key
         self._model = settings.llm_model
 
+    def _check_api_key(self) -> None:
+        if not self._api_key:
+            raise LlmError("LLM_API_KEY is empty")
+
     async def chat(
         self,
         messages: list[dict[str, str]],
@@ -30,8 +35,7 @@ class OpenAICompatClient:
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> str:
-        if not self._api_key:
-            raise LlmError("LLM_API_KEY is empty")
+        self._check_api_key()
 
         url = f"{self._base_url}/chat/completions"
         headers = {"Authorization": f"Bearer {self._api_key}"}
@@ -79,3 +83,64 @@ class OpenAICompatClient:
 
         return message["content"]
 
+    async def stream_chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ):
+        self._check_api_key()
+
+        url = f"{self._base_url}/chat/completions"
+        headers = {"Authorization": f"Bearer {self._api_key}"}
+
+        payload: dict[str, Any] = {"model": self._model, "messages": messages, "stream": True}
+        if temperature is not None:
+            payload["temperature"] = temperature
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+            try:
+                async with client.stream("POST", url, json=payload, headers=headers) as res:
+                    if res.status_code >= 400:
+                        body: Any = None
+                        content_type = res.headers.get("content-type", "")
+                        if "application/json" in content_type:
+                            try:
+                                body = await res.aread()
+                                body = json.loads(body.decode("utf-8", errors="ignore"))
+                            except Exception:
+                                body = None
+                        else:
+                            try:
+                                body = (await res.aread()).decode("utf-8", errors="ignore")
+                            except Exception:
+                                body = None
+                        raise LlmError("LLM error", status_code=res.status_code, body=body)
+
+                    async for line in res.aiter_lines():
+                        if not line:
+                            continue
+                        if not line.startswith("data:"):
+                            continue
+                        data = line[len("data:") :].strip()
+                        if not data or data == "[DONE]":
+                            break
+                        try:
+                            obj = json.loads(data)
+                        except json.JSONDecodeError:
+                            continue
+
+                        choices = obj.get("choices")
+                        if not isinstance(choices, list) or not choices:
+                            continue
+                        delta = choices[0].get("delta")
+                        if not isinstance(delta, dict):
+                            continue
+                        content = delta.get("content")
+                        if isinstance(content, str) and content:
+                            yield content
+            except httpx.HTTPError as e:
+                raise LlmError("LLM request failed") from e

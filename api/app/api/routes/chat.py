@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -83,3 +85,62 @@ async def chat(req: ChatRequest, user=Depends(get_current_user), db: AsyncSessio
     await db.commit()
 
     return {"answer": answer, "chatId": chat.id}
+
+
+@router.post("/stream")
+async def chat_stream(req: ChatRequest, user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    new_user_content = req.message
+    if not new_user_content and req.messages:
+        new_user_content = req.messages[-1].content
+    if not new_user_content:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="message is required")
+
+    chat_id = req.chatId
+    if chat_id is not None:
+        result = await db.execute(select(Chat).where(Chat.id == chat_id, Chat.user_id == user.id))
+        chat = result.scalar_one_or_none()
+        if chat is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found")
+
+        result = await db.execute(
+            select(ChatMessageModel).where(ChatMessageModel.chat_id == chat.id).order_by(ChatMessageModel.created_at.asc())
+        )
+        history = result.scalars().all()
+        llm_messages = [{"role": m.role, "content": m.content} for m in history] + [
+            {"role": "user", "content": new_user_content}
+        ]
+    else:
+        result = await db.execute(select(KnowledgeBase).where(KnowledgeBase.name == "default"))
+        kb = result.scalar_one_or_none()
+        if kb is None:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Default KB missing")
+        chat = Chat(user_id=user.id, kb_id=kb.id)
+        db.add(chat)
+        await db.commit()
+        await db.refresh(chat)
+        llm_messages = (
+            [m.model_dump() for m in req.messages] if req.messages else [{"role": "user", "content": new_user_content}]
+        )
+
+    db.add(ChatMessageModel(chat_id=chat.id, role="user", content=new_user_content))
+    await db.commit()
+
+    client = OpenAICompatClient()
+
+    async def gen():
+        yield f"data: {json.dumps({'type': 'meta', 'chatId': str(chat.id)}, ensure_ascii=False)}\n\n"
+        collected: list[str] = []
+        try:
+            async for token in client.stream_chat(messages=llm_messages):
+                collected.append(token)
+                yield f"data: {json.dumps({'type': 'token', 'value': token}, ensure_ascii=False)}\n\n"
+        except LlmError as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+            return
+
+        answer = "".join(collected)
+        db.add(ChatMessageModel(chat_id=chat.id, role="assistant", content=answer))
+        await db.commit()
+        yield f"data: {json.dumps({'type': 'final', 'answer': answer, 'chatId': str(chat.id)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
