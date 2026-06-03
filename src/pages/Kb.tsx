@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, Plus, Save } from "lucide-react";
+import { AlertTriangle, Pencil, Plus, Save, X } from "lucide-react";
 
 import { ApiError, apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -16,9 +16,14 @@ export default function KbPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const canCreate = useMemo(() => !!name.trim() && !!accessToken && !loading, [accessToken, loading, name]);
+  const canSaveEdit = useMemo(() => !!editingId && !!editName.trim() && !!accessToken && !loading, [accessToken, editName, editingId, loading]);
 
   useEffect(() => {
     if (!isHydrated) void hydrate();
@@ -63,6 +68,38 @@ export default function KbPage() {
     } catch (e) {
       if (e instanceof ApiError) setError(e.message);
       else setError("创建失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startEdit = (kb: Kb) => {
+    setEditingId(kb.id);
+    setEditName(kb.name);
+    setEditDesc(kb.description ?? "");
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditName("");
+    setEditDesc("");
+  };
+
+  const saveEdit = async () => {
+    if (!accessToken || !editingId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await apiFetch<Kb>(`/kbs/${editingId}`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ name: editName.trim(), description: editDesc.trim() ? editDesc.trim() : null }),
+      });
+      cancelEdit();
+      await load(accessToken);
+    } catch (e) {
+      if (e instanceof ApiError) setError(e.message);
+      else setError("保存失败");
     } finally {
       setLoading(false);
     }
@@ -171,11 +208,80 @@ export default function KbPage() {
                   <div key={kb.id} className="px-5 py-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-medium">{kb.name}</div>
-                        <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">{kb.description ?? "—"}</div>
+                        {editingId === kb.id ? (
+                          <div className="space-y-2">
+                            <input
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                              className={cn(
+                                "w-full rounded-md border bg-white px-3 py-2 text-sm outline-none",
+                                "border-slate-200 focus:border-slate-400",
+                                "dark:border-slate-800 dark:bg-slate-950 dark:focus:border-slate-600",
+                              )}
+                            />
+                            <textarea
+                              value={editDesc}
+                              onChange={(e) => setEditDesc(e.target.value)}
+                              rows={2}
+                              className={cn(
+                                "w-full resize-none rounded-md border bg-white px-3 py-2 text-sm outline-none",
+                                "border-slate-200 focus:border-slate-400",
+                                "dark:border-slate-800 dark:bg-slate-950 dark:focus:border-slate-600",
+                              )}
+                            />
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={!canSaveEdit}
+                                onClick={saveEdit}
+                                className={cn(
+                                  "inline-flex items-center gap-2 rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800",
+                                  "disabled:cursor-not-allowed disabled:opacity-60",
+                                  "dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200",
+                                )}
+                              >
+                                <Save className="h-4 w-4" />
+                                保存
+                              </button>
+                              <button
+                                type="button"
+                                disabled={loading}
+                                onClick={cancelEdit}
+                                className={cn(
+                                  "inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm",
+                                  "border-slate-200 text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60",
+                                  "dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900",
+                                )}
+                              >
+                                <X className="h-4 w-4" />
+                                取消
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="truncate text-sm font-medium">{kb.name}</div>
+                            <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">{kb.description ?? "—"}</div>
+                          </>
+                        )}
                       </div>
-                      <div className="flex-none text-xs text-slate-500 dark:text-slate-400">
-                        {new Date(kb.updatedAt).toLocaleString()}
+                      <div className="flex flex-none items-start gap-2">
+                        <div className="pt-1 text-xs text-slate-500 dark:text-slate-400">{new Date(kb.updatedAt).toLocaleString()}</div>
+                        {editingId === kb.id ? null : (
+                          <button
+                            type="button"
+                            disabled={!accessToken || loading}
+                            onClick={() => startEdit(kb)}
+                            className={cn(
+                              "inline-flex items-center justify-center rounded-md border p-2",
+                              "border-slate-200 text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60",
+                              "dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900",
+                            )}
+                            aria-label="Edit KB"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -188,4 +294,3 @@ export default function KbPage() {
     </div>
   );
 }
-
