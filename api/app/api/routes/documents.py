@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import datetime
 from uuid import UUID
@@ -15,6 +16,7 @@ from app.api.routes.auth import get_current_user
 from app.core.config import settings
 from app.db.models.document import Document
 from app.db.models.kb import KnowledgeBase
+from app.rag.indexer import index_document
 
 
 router = APIRouter(prefix="/kbs")
@@ -115,4 +117,5 @@ async def upload_document(
         await anyio.to_thread.run_sync(cleanup)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Upload failed")
 
+    asyncio.create_task(index_document(doc.id))
     return {"documentId": doc.id, "status": doc.status}

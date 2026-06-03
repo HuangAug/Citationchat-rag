@@ -23,10 +23,63 @@ class OpenAICompatClient:
         self._base_url = settings.llm_base_url.rstrip("/")
         self._api_key = settings.llm_api_key
         self._model = settings.llm_model
+        self._embedding_model = settings.embedding_model
 
     def _check_api_key(self) -> None:
         if not self._api_key:
             raise LlmError("LLM_API_KEY is empty")
+
+    async def embed(self, inputs: list[str]) -> list[list[float]]:
+        self._check_api_key()
+
+        url = f"{self._base_url}/embeddings"
+        headers = {"Authorization": f"Bearer {self._api_key}"}
+        payload: dict[str, Any] = {"model": self._embedding_model, "input": inputs}
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+            try:
+                res = await client.post(url, json=payload, headers=headers)
+            except httpx.HTTPError as e:
+                raise LlmError("LLM request failed") from e
+
+        content_type = res.headers.get("content-type", "")
+        body: Any = None
+        if "application/json" in content_type:
+            try:
+                body = res.json()
+            except ValueError:
+                body = None
+        else:
+            body = res.text
+
+        if res.status_code >= 400:
+            msg = "LLM error"
+            if isinstance(body, dict):
+                err = body.get("error")
+                if isinstance(err, dict) and isinstance(err.get("message"), str):
+                    msg = err["message"]
+            raise LlmError(msg, status_code=res.status_code, body=body)
+
+        if not isinstance(body, dict):
+            raise LlmError("Unexpected LLM response format", status_code=res.status_code, body=body)
+
+        data = body.get("data")
+        if not isinstance(data, list) or not data:
+            raise LlmError("LLM response missing data", status_code=res.status_code, body=body)
+
+        embeddings: list[list[float]] = []
+        for item in data:
+            if not isinstance(item, dict) or not isinstance(item.get("embedding"), list):
+                raise LlmError("LLM response missing embedding", status_code=res.status_code, body=body)
+            embedding = item["embedding"]
+            if not all(isinstance(x, (int, float)) for x in embedding):
+                raise LlmError("LLM response invalid embedding", status_code=res.status_code, body=body)
+            embeddings.append([float(x) for x in embedding])
+
+        if len(embeddings) != len(inputs):
+            raise LlmError("LLM response embedding count mismatch", status_code=res.status_code, body=body)
+
+        return embeddings
 
     async def chat(
         self,

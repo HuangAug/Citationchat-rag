@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, Upload } from "lucide-react";
 
@@ -17,8 +17,13 @@ export default function KbDetail() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const refreshInFlight = useRef(false);
 
   const canUpload = useMemo(() => !!accessToken && !!kbId && !!file && !loading, [accessToken, file, kbId, loading]);
+  const shouldPoll = useMemo(
+    () => docs.some((d) => d.status === "uploaded" || d.status === "uploading" || d.status === "indexing"),
+    [docs],
+  );
 
   useEffect(() => {
     if (!isHydrated) void hydrate();
@@ -46,6 +51,26 @@ export default function KbDetail() {
       setLoading(false);
     }
   };
+
+  const refreshSilent = async (token: string, id: string) => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    try {
+      const data = await apiFetch<Doc[]>(`/kbs/${id}/documents`, { headers: { Authorization: `Bearer ${token}` } });
+      setDocs(data);
+    } catch {
+    } finally {
+      refreshInFlight.current = false;
+    }
+  };
+
+  useEffect(() => {
+    if (!isHydrated || !accessToken || !kbId || !shouldPoll) return;
+    const timer = window.setInterval(() => {
+      void refreshSilent(accessToken, kbId);
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [accessToken, isHydrated, kbId, shouldPoll]);
 
   const upload = async () => {
     if (!accessToken || !kbId || !file) return;
@@ -137,7 +162,10 @@ export default function KbDetail() {
 
           <div className="lg:col-span-2">
             <div className="rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
-              <div className="border-b border-slate-200/60 px-5 py-4 text-sm font-medium dark:border-slate-800/60">文档列表</div>
+              <div className="flex items-center justify-between gap-3 border-b border-slate-200/60 px-5 py-4 text-sm font-medium dark:border-slate-800/60">
+                <div>文档列表</div>
+                {shouldPoll ? <div className="text-xs font-normal text-slate-500 dark:text-slate-400">自动刷新中…</div> : null}
+              </div>
               <div className="divide-y divide-slate-200/60 dark:divide-slate-800/60">
                 {docs.length ? null : (
                   <div className="px-5 py-6 text-sm text-slate-500 dark:text-slate-400">{loading ? "加载中…" : "暂无文档"}</div>
@@ -166,4 +194,3 @@ export default function KbDetail() {
     </div>
   );
 }
-

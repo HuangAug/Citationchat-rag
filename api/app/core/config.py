@@ -16,8 +16,13 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     llm_api_key: str = ""
     llm_model: str = "qwen3.5-plus-2026-04-20"
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = 1536
     storage_dir: str = "storage"
     max_upload_size_mb: int = 20
+    rag_chunk_size: int = 1000
+    rag_chunk_overlap: int = 200
+    rag_embedding_batch_size: int = 32
 
 
 settings = Settings()
