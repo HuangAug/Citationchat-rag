@@ -90,7 +90,6 @@ export default function Login() {
                   <input
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="admin@local"
                     className={cn(
                       "w-full rounded-md border bg-white px-3 py-2 text-sm outline-none",
                       "border-slate-200 focus:border-slate-400",
@@ -108,7 +107,6 @@ export default function Login() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     type="password"
-                    placeholder="123456"
                     className={cn(
                       "w-full rounded-md border bg-white px-3 py-2 text-sm outline-none",
                       "border-slate-200 focus:border-slate-400",
@@ -139,13 +137,6 @@ export default function Login() {
                 {mode === "login" ? "登录" : "注册并登录"}
                 <ArrowRight className="h-4 w-4" />
               </button>
-
-              <div className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-                默认管理员：{` `}
-                <span className="font-medium text-slate-700 dark:text-slate-200">admin@local</span>
-                {` / `}
-                <span className="font-medium text-slate-700 dark:text-slate-200">123456</span>
-              </div>
             </div>
           </div>
         </div>

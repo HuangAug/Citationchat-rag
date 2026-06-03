@@ -1,12 +1,19 @@
 import type { ReactNode } from "react";
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, BookOpen, MessageSquare, ShieldCheck, TestTubeDiagonal } from "lucide-react";
 
 import { useTheme } from "@/hooks/useTheme";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/store/auth";
 
 export default function Home() {
   const { isDark, toggleTheme } = useTheme();
+  const { user, logout, hydrate, isHydrated } = useAuthStore();
+
+  useEffect(() => {
+    if (!isHydrated) void hydrate();
+  }, [hydrate, isHydrated]);
 
   return (
     <div className="min-h-screen bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-50">
@@ -38,15 +45,54 @@ export default function Home() {
             >
               {isDark ? "浅色" : "深色"}
             </button>
-            <Link
-              to="/login"
-              className={cn(
-                "rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800",
-                "dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200",
-              )}
-            >
-              登录
-            </Link>
+            {user ? (
+              <div className="group relative">
+                <button
+                  type="button"
+                  className={cn(
+                    "inline-flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold",
+                    "bg-slate-900 text-white",
+                    "dark:bg-white dark:text-slate-950",
+                  )}
+                  aria-label="User menu"
+                >
+                  {user.email.slice(0, 1).toUpperCase()}
+                </button>
+                <div
+                  className={cn(
+                    "absolute right-0 top-full hidden w-44 pt-2 group-hover:block",
+                    "group-focus-within:block",
+                  )}
+                >
+                  <div className="rounded-xl border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+                    <div className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">{user.email}</div>
+                    <Link
+                      to="/me"
+                      className="block rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900"
+                    >
+                      个人空间
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={logout}
+                      className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900"
+                    >
+                      退出登录
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <Link
+                to="/login"
+                className={cn(
+                  "rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800",
+                  "dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200",
+                )}
+              >
+                登录
+              </Link>
+            )}
           </div>
         </div>
       </header>
