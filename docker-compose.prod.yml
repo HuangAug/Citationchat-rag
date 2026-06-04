@@ -20,6 +20,8 @@ services:
     build:
       context: ./api
       dockerfile: Dockerfile
+    env_file:
+      - ./api/.env
     environment:
       APP_ENV: prod
       API_PREFIX: /api
