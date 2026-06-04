@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
   id uuid PRIMARY KEY,
   name varchar(120) NOT NULL,
   description text,
+  is_default boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );

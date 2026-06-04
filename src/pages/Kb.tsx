@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { AlertTriangle, Pencil, Plus, Save, X } from "lucide-react";
+import { AlertTriangle, Pencil, Plus, Save, Trash2, X } from "lucide-react";
 
 import { ApiError, apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
-type Kb = { id: string; name: string; description: string | null; createdAt: string; updatedAt: string };
+type Kb = { id: string; name: string; description: string | null; isDefault: boolean; createdAt: string; updatedAt: string };
 type CreateKbWithDocsResponse = {
   id: string;
   name: string;
@@ -27,6 +27,9 @@ export default function KbPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [defaultDeleteId, setDefaultDeleteId] = useState<string | null>(null);
+  const [newDefaultId, setNewDefaultId] = useState<string>("");
 
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
@@ -138,6 +141,68 @@ export default function KbPage() {
       else setError("保存失败");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const requestDelete = async (kb: Kb) => {
+    if (!accessToken) return;
+    if (kbs.length <= 1) return;
+    if (kb.isDefault) {
+      setDefaultDeleteId(kb.id);
+      const fallback = kbs.find((x) => x.id !== kb.id);
+      setNewDefaultId(fallback?.id ?? "");
+      return;
+    }
+
+    const ok = window.confirm(`确认删除知识库：${kb.name}？`);
+    if (!ok) return;
+    setDeletingId(kb.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/kbs/${kb.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!res.ok) {
+        const contentType = res.headers.get("content-type") ?? "";
+        const body = contentType.includes("application/json") ? await res.json() : await res.text();
+        throw new ApiError("删除失败", res.status, body);
+      }
+      await load(accessToken);
+    } catch (e) {
+      if (e instanceof ApiError) setError(e.message);
+      else setError("删除失败");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const confirmDeleteDefault = async () => {
+    if (!accessToken || !defaultDeleteId) return;
+    if (!newDefaultId) {
+      setError("请选择新的默认知识库");
+      return;
+    }
+    const kb = kbs.find((x) => x.id === defaultDeleteId);
+    const ok = window.confirm(`将默认知识库切换为选中项，并删除：${kb?.name ?? "默认知识库"}？`);
+    if (!ok) return;
+    setDeletingId(defaultDeleteId);
+    setError(null);
+    try {
+      const qs = new URLSearchParams({ newDefaultKbId: newDefaultId }).toString();
+      const res = await fetch(`/api/kbs/${defaultDeleteId}?${qs}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!res.ok) {
+        const contentType = res.headers.get("content-type") ?? "";
+        const body = contentType.includes("application/json") ? await res.json() : await res.text();
+        throw new ApiError("删除失败", res.status, body);
+      }
+      setDefaultDeleteId(null);
+      await load(accessToken);
+    } catch (e) {
+      if (e instanceof ApiError) setError(e.message);
+      else setError("删除失败");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -313,7 +378,20 @@ export default function KbPage() {
                           </div>
                         ) : (
                           <>
-                            <div className="truncate text-sm font-medium">{kb.name}</div>
+                            <div className="flex items-center gap-2">
+                              <div className="truncate text-sm font-medium">{kb.name}</div>
+                              {kb.isDefault ? (
+                                <span
+                                  className={cn(
+                                    "rounded-full px-2 py-0.5 text-xs font-medium",
+                                    "bg-amber-100 text-amber-800",
+                                    "dark:bg-amber-950/40 dark:text-amber-200",
+                                  )}
+                                >
+                                  默认
+                                </span>
+                              ) : null}
+                            </div>
                             <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">{kb.description ?? "—"}</div>
                             <div className="mt-2">
                               <Link
@@ -343,6 +421,22 @@ export default function KbPage() {
                             <Pencil className="h-4 w-4" />
                           </button>
                         )}
+                        {editingId === kb.id ? null : (
+                          <button
+                            type="button"
+                            disabled={!accessToken || loading || deletingId === kb.id || kbs.length <= 1}
+                            onClick={() => void requestDelete(kb)}
+                            className={cn(
+                              "inline-flex items-center justify-center rounded-md border p-2",
+                              "border-slate-200 text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60",
+                              "dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900",
+                            )}
+                            aria-label="Delete KB"
+                            title={kbs.length <= 1 ? "仅剩一个知识库时不可删除" : "删除"}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -352,6 +446,63 @@ export default function KbPage() {
           </div>
         </div>
       </div>
+
+      {defaultDeleteId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-lg dark:border-slate-800 dark:bg-slate-950">
+            <div className="text-sm font-medium">删除默认知识库</div>
+            <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+              删除默认知识库前，需要先指定一个新的默认知识库。
+            </div>
+            <div className="mt-4 space-y-2">
+              <div className="text-sm text-slate-600 dark:text-slate-300">新的默认知识库</div>
+              <select
+                value={newDefaultId}
+                onChange={(e) => setNewDefaultId(e.target.value)}
+                className={cn(
+                  "w-full rounded-md border bg-white px-3 py-2 text-sm outline-none",
+                  "border-slate-200 focus:border-slate-400",
+                  "dark:border-slate-800 dark:bg-slate-950 dark:focus:border-slate-600",
+                )}
+              >
+                {kbs
+                  .filter((k) => k.id !== defaultDeleteId)
+                  .map((k) => (
+                    <option key={k.id} value={k.id}>
+                      {k.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={deletingId === defaultDeleteId}
+                onClick={() => setDefaultDeleteId(null)}
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm",
+                  "border-slate-200 text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60",
+                  "dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900",
+                )}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={deletingId === defaultDeleteId || !newDefaultId}
+                onClick={() => void confirmDeleteDefault()}
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800",
+                  "disabled:cursor-not-allowed disabled:opacity-60",
+                  "dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200",
+                )}
+              >
+                {deletingId === defaultDeleteId ? "删除中…" : "确认删除"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

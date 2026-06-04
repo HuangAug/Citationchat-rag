@@ -18,13 +18,24 @@ def create_app() -> FastAPI:
         if settings.app_env == "prod":
             return
         async with SessionLocal() as db:
-            result = await db.execute(select(KnowledgeBase).where(KnowledgeBase.name == "default"))
-            kb = result.scalar_one_or_none()
-            if kb is None:
-                kb = KnowledgeBase(name="default", description="Default knowledge base")
-                db.add(kb)
+            result = await db.execute(select(KnowledgeBase).where(KnowledgeBase.name == "default").order_by(KnowledgeBase.created_at.asc()))
+            default_by_name = result.scalars().first()
+            if default_by_name is None:
+                default_by_name = KnowledgeBase(name="default", description="Default knowledge base", is_default=True)
+                db.add(default_by_name)
                 await db.commit()
-                await db.refresh(kb)
+                await db.refresh(default_by_name)
+
+            result = await db.execute(select(KnowledgeBase).where(KnowledgeBase.is_default.is_(True)).order_by(KnowledgeBase.created_at.asc()))
+            defaults = result.scalars().all()
+            if not defaults:
+                default_by_name.is_default = True
+                await db.commit()
+            elif len(defaults) > 1:
+                keep = defaults[0]
+                for kb in defaults[1:]:
+                    kb.is_default = False
+                await db.commit()
 
             result = await db.execute(select(User).where(User.email == settings.admin_email))
             user = result.scalar_one_or_none()

@@ -5,9 +5,9 @@ import os
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
@@ -16,7 +16,7 @@ from app.core.config import settings
 from app.db.models.document import Document
 from app.db.models.kb import KnowledgeBase
 from app.rag.indexer import index_document
-from app.storage.upload import remove_if_exists, save_upload
+from app.storage.upload import remove_if_exists, remove_tree_if_exists, save_upload
 
 
 router = APIRouter(prefix="/kbs")
@@ -26,6 +26,7 @@ class KbOut(BaseModel):
     id: UUID
     name: str
     description: str | None
+    isDefault: bool
     createdAt: datetime
     updatedAt: datetime
 
@@ -58,6 +59,7 @@ async def list_kbs(_user=Depends(get_current_user), db: AsyncSession = Depends(g
             "id": kb.id,
             "name": kb.name,
             "description": kb.description,
+            "isDefault": kb.is_default,
             "createdAt": kb.created_at,
             "updatedAt": kb.updated_at,
         }
@@ -71,7 +73,14 @@ async def create_kb(req: CreateKbRequest, _user=Depends(get_current_user), db: A
     db.add(kb)
     await db.commit()
     await db.refresh(kb)
-    return {"id": kb.id, "name": kb.name, "description": kb.description, "createdAt": kb.created_at, "updatedAt": kb.updated_at}
+    return {
+        "id": kb.id,
+        "name": kb.name,
+        "description": kb.description,
+        "isDefault": kb.is_default,
+        "createdAt": kb.created_at,
+        "updatedAt": kb.updated_at,
+    }
 
 
 @router.post("/with-documents", response_model=CreateKbWithDocumentsResponse, status_code=status.HTTP_201_CREATED)
@@ -149,4 +158,80 @@ async def update_kb(kb_id: UUID, req: UpdateKbRequest, _user=Depends(get_current
 
     await db.commit()
     await db.refresh(kb)
-    return {"id": kb.id, "name": kb.name, "description": kb.description, "createdAt": kb.created_at, "updatedAt": kb.updated_at}
+    return {
+        "id": kb.id,
+        "name": kb.name,
+        "description": kb.description,
+        "isDefault": kb.is_default,
+        "createdAt": kb.created_at,
+        "updatedAt": kb.updated_at,
+    }
+
+
+@router.post("/{kb_id}/default", response_model=KbOut)
+async def set_default_kb(kb_id: UUID, _user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(KnowledgeBase).where(KnowledgeBase.id == kb_id))
+    kb = result.scalar_one_or_none()
+    if kb is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KB not found")
+
+    result = await db.execute(select(KnowledgeBase))
+    kbs = result.scalars().all()
+    for it in kbs:
+        it.is_default = it.id == kb.id
+    await db.commit()
+    await db.refresh(kb)
+    return {
+        "id": kb.id,
+        "name": kb.name,
+        "description": kb.description,
+        "isDefault": kb.is_default,
+        "createdAt": kb.created_at,
+        "updatedAt": kb.updated_at,
+    }
+
+
+@router.delete("/{kb_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_kb(
+    kb_id: UUID,
+    newDefaultKbId: UUID | None = Query(None),
+    _user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    total = await db.execute(select(func.count()).select_from(KnowledgeBase))
+    if int(total.scalar_one() or 0) <= 1:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cannot delete the only KB")
+
+    result = await db.execute(select(KnowledgeBase).where(KnowledgeBase.id == kb_id))
+    kb = result.scalar_one_or_none()
+    if kb is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KB not found")
+
+    if kb.is_default:
+        if newDefaultKbId is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="newDefaultKbId is required when deleting default KB",
+            )
+        if newDefaultKbId == kb.id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="newDefaultKbId must be different from kb_id",
+            )
+
+        result = await db.execute(select(KnowledgeBase).where(KnowledgeBase.id == newDefaultKbId))
+        new_default = result.scalar_one_or_none()
+        if new_default is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="newDefaultKbId not found")
+
+        result = await db.execute(select(KnowledgeBase))
+        kbs = result.scalars().all()
+        for it in kbs:
+            it.is_default = it.id == new_default.id
+        await db.commit()
+
+    kb_dir = os.path.join(settings.storage_dir, "kbs", str(kb.id))
+    await db.delete(kb)
+    await db.commit()
+    await remove_tree_if_exists(kb_dir)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

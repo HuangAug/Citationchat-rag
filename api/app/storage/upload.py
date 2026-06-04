@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 
 import anyio
 from fastapi import HTTPException, UploadFile, status
@@ -28,3 +29,10 @@ async def remove_if_exists(path: str) -> None:
 
     await anyio.to_thread.run_sync(cleanup)
 
+
+async def remove_tree_if_exists(path: str) -> None:
+    def cleanup():
+        if os.path.isdir(path):
+            shutil.rmtree(path, ignore_errors=True)
+
+    await anyio.to_thread.run_sync(cleanup)

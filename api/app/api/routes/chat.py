@@ -95,8 +95,10 @@ async def chat(req: ChatRequest, user=Depends(get_current_user), db: AsyncSessio
             {"role": "user", "content": new_user_content}
         ]
     else:
-        result = await db.execute(select(KnowledgeBase).where(KnowledgeBase.name == "default"))
-        kb = result.scalar_one_or_none()
+        result = await db.execute(
+            select(KnowledgeBase).where(KnowledgeBase.is_default.is_(True)).order_by(KnowledgeBase.created_at.asc())
+        )
+        kb = result.scalars().first()
         if kb is None:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Default KB missing")
         chat = Chat(user_id=user.id, kb_id=kb.id)
@@ -149,8 +151,10 @@ async def chat_stream(req: ChatRequest, user=Depends(get_current_user), db: Asyn
             {"role": "user", "content": new_user_content}
         ]
     else:
-        result = await db.execute(select(KnowledgeBase).where(KnowledgeBase.name == "default"))
-        kb = result.scalar_one_or_none()
+        result = await db.execute(
+            select(KnowledgeBase).where(KnowledgeBase.is_default.is_(True)).order_by(KnowledgeBase.created_at.asc())
+        )
+        kb = result.scalars().first()
         if kb is None:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Default KB missing")
         chat = Chat(user_id=user.id, kb_id=kb.id)

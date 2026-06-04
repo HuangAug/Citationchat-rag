@@ -29,9 +29,10 @@ docker compose up -d db
 
 初始化表结构：
 - 首次启动空数据卷时，会自动执行 `migrations/*.sql`（通过 `/docker-entrypoint-initdb.d` 挂载）
-- 如果数据库卷已存在，需要手动执行一次：
+- 如果数据库卷已存在，需要手动执行新增的迁移（按文件名从小到大）：
 ```bash
 docker compose exec -T db psql -U citationchat -d citationchat -f /docker-entrypoint-initdb.d/20260602_0001_init.sql
+docker compose exec -T db psql -U citationchat -d citationchat -f /docker-entrypoint-initdb.d/20260604_0002_kb_default.sql
 ```
 
 健康检查：
