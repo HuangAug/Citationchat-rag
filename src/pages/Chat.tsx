@@ -6,10 +6,15 @@ import { ApiError, apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
-type ChatMessage = { role: "user" | "assistant" | "system"; content: string };
+type Citation = { index: number; chunkId: string; documentId: string; filename: string; page: number | null; score: number };
+type ChatMessage = { role: "user" | "assistant" | "system"; content: string; citations?: Citation[] };
 
 type ChatListItem = { id: string; createdAt: string; lastMessage: string | null };
-type ChatDetail = { id: string; createdAt: string; messages: Array<{ id: string; role: ChatMessage["role"]; content: string; createdAt: string }> };
+type ChatDetail = {
+  id: string;
+  createdAt: string;
+  messages: Array<{ id: string; role: ChatMessage["role"]; content: string; citations: Citation[]; createdAt: string }>;
+};
 
 export default function Chat() {
   const navigate = useNavigate();
@@ -54,7 +59,7 @@ export default function Chat() {
     assistantIndexRef.current = null;
     const detail = await apiFetch<ChatDetail>(`/chats/${id}`, { headers: { Authorization: `Bearer ${token}` } });
     setChatId(detail.id);
-    setMessages(detail.messages.map((m) => ({ role: m.role, content: m.content })));
+    setMessages(detail.messages.map((m) => ({ role: m.role, content: m.content, citations: m.citations })));
   };
 
   const deleteChat = async (token: string, id: string) => {
@@ -108,7 +113,7 @@ export default function Chat() {
           const next = [...prev];
           const cur = next[idx];
           if (!cur || cur.role !== "assistant") return prev;
-          next[idx] = { role: "assistant", content: cur.content + token };
+          next[idx] = { ...cur, role: "assistant", content: cur.content + token };
           return next;
         });
       };
@@ -129,7 +134,22 @@ export default function Chat() {
           const payload = line.slice("data:".length).trim();
           if (!payload) continue;
           const event = JSON.parse(payload) as any;
-          if (event.type === "meta" && typeof event.chatId === "string") setChatId(event.chatId);
+          if (event.type === "meta") {
+            if (typeof event.chatId === "string") setChatId(event.chatId);
+            if (Array.isArray(event.citations)) {
+              const idx = assistantIndexRef.current;
+              if (idx != null) {
+                setMessages((prev) => {
+                  if (idx >= prev.length) return prev;
+                  const next = [...prev];
+                  const cur = next[idx];
+                  if (!cur || cur.role !== "assistant") return prev;
+                  next[idx] = { ...cur, citations: event.citations as Citation[] };
+                  return next;
+                });
+              }
+            }
+          }
           if (event.type === "token" && typeof event.value === "string") applyToken(event.value);
           if (event.type === "error" && typeof event.message === "string") throw new ApiError(event.message, 502, event);
           if (event.type === "final") {
@@ -142,7 +162,7 @@ export default function Chat() {
                   const next = [...prev];
                   const cur = next[idx];
                   if (!cur || cur.role !== "assistant") return prev;
-                  next[idx] = { role: "assistant", content: event.answer };
+                  next[idx] = { ...cur, role: "assistant", content: event.answer, citations: (event.citations as Citation[]) ?? cur.citations };
                   return next;
                 });
               }
@@ -279,6 +299,16 @@ export default function Chat() {
                     )}
                   >
                     {m.content || (m.role === "assistant" && submitting ? "…" : "")}
+                    {m.role === "assistant" && m.citations?.length ? (
+                      <div className="mt-3 space-y-1 border-t border-slate-200/60 pt-3 text-xs text-slate-600 dark:border-slate-800/60 dark:text-slate-300">
+                        {m.citations.map((c) => (
+                          <div key={c.index} className="truncate">
+                            [{c.index}] {c.filename}
+                            {c.page ? ` p.${c.page}` : ""}（score {c.score.toFixed(3)}）
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ))}

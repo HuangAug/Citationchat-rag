@@ -63,7 +63,7 @@ async def get_chat(chat_id: UUID, user=Depends(get_current_user), db: AsyncSessi
     return {
         "id": chat.id,
         "createdAt": chat.created_at,
-        "messages": [{"id": m.id, "role": m.role, "content": m.content, "createdAt": m.created_at} for m in msgs],
+        "messages": [{"id": m.id, "role": m.role, "content": m.content, "citations": m.citations, "createdAt": m.created_at} for m in msgs],
     }
 
 

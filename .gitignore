@@ -11,12 +11,33 @@ node_modules
 dist
 dist-ssr
 *.local
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local storage
+storage/
+api/storage/
+
+# Conda / venv
+.conda/
+.venv/
+venv/
+ENV/
+env/
+
+# OS
+Thumbs.db
+
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
-.DS_Store
 *.suo
 *.ntvs*
 *.njsproj

@@ -16,6 +16,7 @@ from app.db.models.chat import Chat
 from app.db.models.chat_message import ChatMessage as ChatMessageModel
 from app.db.models.kb import KnowledgeBase
 from app.llm.client import LlmError, OpenAICompatClient
+from app.rag.retriever import search_chunks
 
 
 router = APIRouter(prefix="/chat")
@@ -35,6 +36,40 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     chatId: UUID
+    citations: list[dict] = []
+
+
+def _build_rag_prompt(hits: list, *, question: str) -> tuple[list[dict], list[dict]]:
+    if not hits:
+        return [], []
+
+    citations: list[dict] = []
+    lines: list[str] = []
+    for i, h in enumerate(hits, start=1):
+        page = f" p.{h.page}" if h.page else ""
+        snippet = h.content.strip().replace("\r\n", "\n").replace("\r", "\n")
+        if len(snippet) > 800:
+            snippet = snippet[:800]
+        lines.append(f"[{i}] {h.filename}{page}\n{snippet}")
+        citations.append(
+            {
+                "index": i,
+                "chunkId": str(h.chunk_id),
+                "documentId": str(h.document_id),
+                "filename": h.filename,
+                "page": h.page,
+                "score": h.score,
+            }
+        )
+
+    system = (
+        "你是企业知识库助手。回答必须优先基于提供的 Sources。\n"
+        "如果 Sources 不包含答案所需信息，请明确说明“知识库中未找到相关信息”。\n"
+        "在回答中用 [数字] 标注引用来源，例如：xxx[1][2]。\n\n"
+        "Sources:\n"
+        + "\n\n".join(lines)
+    )
+    return [{"role": "system", "content": system}], citations
 
 
 @router.post("", response_model=ChatResponse)
@@ -75,16 +110,20 @@ async def chat(req: ChatRequest, user=Depends(get_current_user), db: AsyncSessio
     db.add(ChatMessageModel(chat_id=chat.id, role="user", content=new_user_content))
     await db.commit()
 
+    hits = await search_chunks(db, kb_id=chat.kb_id, query=new_user_content)
+    rag_msgs, citations = _build_rag_prompt(hits, question=new_user_content)
+    llm_messages = rag_msgs + llm_messages
+
     client = OpenAICompatClient()
     try:
         answer = await client.chat(messages=llm_messages)
     except LlmError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
 
-    db.add(ChatMessageModel(chat_id=chat.id, role="assistant", content=answer))
+    db.add(ChatMessageModel(chat_id=chat.id, role="assistant", content=answer, citations=citations))
     await db.commit()
 
-    return {"answer": answer, "chatId": chat.id}
+    return {"answer": answer, "chatId": chat.id, "citations": citations}
 
 
 @router.post("/stream")
@@ -125,10 +164,14 @@ async def chat_stream(req: ChatRequest, user=Depends(get_current_user), db: Asyn
     db.add(ChatMessageModel(chat_id=chat.id, role="user", content=new_user_content))
     await db.commit()
 
+    hits = await search_chunks(db, kb_id=chat.kb_id, query=new_user_content)
+    rag_msgs, citations = _build_rag_prompt(hits, question=new_user_content)
+    llm_messages = rag_msgs + llm_messages
+
     client = OpenAICompatClient()
 
     async def gen():
-        yield f"data: {json.dumps({'type': 'meta', 'chatId': str(chat.id)}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'meta', 'chatId': str(chat.id), 'citations': citations}, ensure_ascii=False)}\n\n"
         collected: list[str] = []
         try:
             async for token in client.stream_chat(messages=llm_messages):
@@ -139,8 +182,8 @@ async def chat_stream(req: ChatRequest, user=Depends(get_current_user), db: Asyn
             return
 
         answer = "".join(collected)
-        db.add(ChatMessageModel(chat_id=chat.id, role="assistant", content=answer))
+        db.add(ChatMessageModel(chat_id=chat.id, role="assistant", content=answer, citations=citations))
         await db.commit()
-        yield f"data: {json.dumps({'type': 'final', 'answer': answer, 'chatId': str(chat.id)}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'final', 'answer': answer, 'chatId': str(chat.id), 'citations': citations}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream")

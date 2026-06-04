@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     rag_chunk_size: int = 1000
     rag_chunk_overlap: int = 200
     rag_embedding_batch_size: int = 32
+    rag_top_k: int = 5
 
 
 settings = Settings()
