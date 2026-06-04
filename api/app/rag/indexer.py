@@ -123,7 +123,7 @@ async def index_document(document_id: UUID) -> None:
                                 kb_id=doc.kb_id,
                                 page=page,
                                 content=content,
-                                metadata={"chunkIndex": chunk_id, "filename": doc.filename},
+                                meta={"chunkIndex": chunk_id, "filename": doc.filename},
                                 embedding=embedding,
                             )
                         )

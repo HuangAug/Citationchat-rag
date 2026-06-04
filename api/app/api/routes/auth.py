@@ -71,7 +71,12 @@ async def get_current_user(
 async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == req.email))
     user = result.scalar_one_or_none()
-    if user is None or not verify_password(req.password, user.password_hash):
+    try:
+        ok = user is not None and verify_password(req.password, user.password_hash)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Password verification backend error")
+
+    if not ok:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     access_token = create_access_token(subject=str(user.id))
