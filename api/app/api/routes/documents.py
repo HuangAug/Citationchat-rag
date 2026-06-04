@@ -6,14 +6,15 @@ from datetime import datetime
 from uuid import UUID
 
 import anyio
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.api.routes.auth import get_current_user
 from app.core.config import settings
+from app.db.models.chunk import Chunk
 from app.db.models.document import Document
 from app.db.models.kb import KnowledgeBase
 from app.rag.indexer import index_document
@@ -95,3 +96,29 @@ async def upload_document(
 
     asyncio.create_task(index_document(doc.id))
     return {"documentId": doc.id, "status": doc.status}
+
+
+@router.delete("/{kb_id}/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_document(
+    kb_id: UUID,
+    document_id: UUID,
+    _user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Document).where(Document.id == document_id, Document.kb_id == kb_id))
+    doc = result.scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    storage_path = doc.storage_path
+    doc.status = "deleting"
+    await db.commit()
+
+    await db.execute(delete(Chunk).where(Chunk.document_id == doc.id))
+    await db.delete(doc)
+    await db.commit()
+
+    if storage_path:
+        await remove_if_exists(storage_path)
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

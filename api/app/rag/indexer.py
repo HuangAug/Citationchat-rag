@@ -85,6 +85,8 @@ async def index_document(document_id: UUID) -> None:
         doc = result.scalar_one_or_none()
         if doc is None:
             return
+        if doc.status in {"deleting", "deleted"}:
+            return
 
         doc.status = "indexing"
         doc.error_message = None

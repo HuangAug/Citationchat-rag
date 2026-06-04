@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, Upload } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Trash2, Upload } from "lucide-react";
 
 import { ApiError, apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -17,6 +17,7 @@ export default function KbDetail() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const refreshInFlight = useRef(false);
 
   const canUpload = useMemo(() => !!accessToken && !!kbId && !!file && !loading, [accessToken, file, kbId, loading]);
@@ -99,6 +100,31 @@ export default function KbDetail() {
     }
   };
 
+  const remove = async (doc: Doc) => {
+    if (!accessToken || !kbId) return;
+    const ok = window.confirm(`确认删除文件：${doc.filename}？`);
+    if (!ok) return;
+    setDeletingId(doc.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/kbs/${kbId}/documents/${doc.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!res.ok) {
+        const contentType = res.headers.get("content-type") ?? "";
+        const body = contentType.includes("application/json") ? await res.json() : await res.text();
+        throw new ApiError("删除失败", res.status, body);
+      }
+      await load(accessToken, kbId);
+    } catch (e) {
+      if (e instanceof ApiError) setError(e.message);
+      else setError("删除失败");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   if (!kbId) return null;
 
   return (
@@ -156,7 +182,7 @@ export default function KbDetail() {
                 <Upload className="h-4 w-4" />
                 上传
               </button>
-              <div className="text-xs text-slate-500 dark:text-slate-400">当前仅记录上传状态，解析/索引将在下一步实现。</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">支持上传后自动解析/分块/索引，可在列表中删除文件。</div>
             </div>
           </div>
 
@@ -180,8 +206,21 @@ export default function KbDetail() {
                           {d.errorMessage ? `（${d.errorMessage}）` : ""}
                         </div>
                       </div>
-                      <div className="flex-none text-xs text-slate-500 dark:text-slate-400">
-                        {new Date(d.createdAt).toLocaleString()}
+                      <div className="flex flex-none items-center gap-3">
+                        <div className="text-xs text-slate-500 dark:text-slate-400">{new Date(d.createdAt).toLocaleString()}</div>
+                        <button
+                          type="button"
+                          onClick={() => void remove(d)}
+                          disabled={deletingId === d.id}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs",
+                            "border-slate-200 text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60",
+                            "dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900",
+                          )}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          {deletingId === d.id ? "删除中…" : "删除"}
+                        </button>
                       </div>
                     </div>
                   </div>
