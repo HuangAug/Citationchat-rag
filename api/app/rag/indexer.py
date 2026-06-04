@@ -118,7 +118,9 @@ async def index_document(document_id: UUID) -> None:
                     embeddings = await client.embed(batch)
                     for content, embedding in zip(batch, embeddings, strict=True):
                         if len(embedding) != settings.embedding_dimensions:
-                            raise ValueError("Embedding dimensions mismatch")
+                            raise ValueError(
+                                f"Embedding dimensions mismatch: expected {settings.embedding_dimensions}, got {len(embedding)}"
+                            )
                         db.add(
                             Chunk(
                                 document_id=doc.id,

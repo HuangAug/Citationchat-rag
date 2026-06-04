@@ -70,4 +70,3 @@ async def search_chunks(
             )
         )
     return hits
-

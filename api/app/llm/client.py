@@ -34,7 +34,11 @@ class OpenAICompatClient:
 
         url = f"{self._base_url}/embeddings"
         headers = {"Authorization": f"Bearer {self._api_key}"}
-        payload: dict[str, Any] = {"model": self._embedding_model, "input": inputs}
+        payload: dict[str, Any] = {
+            "model": self._embedding_model,
+            "input": inputs,
+            "dimensions": settings.embedding_dimensions,
+        }
 
         async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
             try:
